@@ -1,7 +1,7 @@
 # Maintainer: TheCrabeuh <clement.dallasenn@outlook.fr>
 
 pkgname=fren-git
-pkgver=1
+pkgver=r12.145ab60
 pkgrel=1
 pkgdesc="A TUI file manager that lets you open files and directories with any app"
 arch=('x86_64')
@@ -18,16 +18,9 @@ sha256sums=('SKIP')
 
 pkgver() {
   cd "$srcdir/fren"
-
-  git describe --long --tags --abbrev=7 2>/dev/null \
-    | sed 's/^v//;s/-/./g' \
-    || true
-
-  if [ -z "$pkgver" ]; then
-    printf "r%s.%s" \
-      "$(git rev-list --count HEAD)" \
-      "$(git rev-parse --short HEAD)"
-  fi
+  printf "r%s.%s" \
+    "$(git rev-list --count HEAD)" \
+    "$(git rev-parse --short HEAD)"
 }
 
 build() {
