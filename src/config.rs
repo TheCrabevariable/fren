@@ -36,7 +36,7 @@ impl Config {
 
         if !config_path.exists() {
             let default_config = "quit = \"q\"\n\
-                 open = \"o\"\n\
+                 open = \"enter\"\n\
                  focus = \"tab\"\n\
                  copy = \"c\"\n\
                  cut = \"x\"\n\
@@ -47,8 +47,8 @@ impl Config {
                  create_file = \"n\"\n\
                  create_folder = \"f\"\n\
                  rename = \"r\"\n\
-                 pin = \"u\"\n\
-                 unpin = \"i\"\n";
+                 pin = \"p\"\n\
+                 unpin = \"u\"\n";
 
             fs::write(&config_path, default_config).expect("Failed to create default config.toml");
         }
@@ -106,7 +106,7 @@ impl Default for Config {
                 create_file: "n".into(),
                 create_folder: "f".into(),
                 rename: "r".into(),
-                open: "o".into(),
+                open: "enter".into(),
                 copy: "c".into(),
                 cut: "x".into(),
                 paste: "v".into(),
@@ -114,8 +114,8 @@ impl Default for Config {
                 sort: "s".into(),
                 toggle_hidden: ".".into(),
                 focus: "tab".into(),
-                pin: "u".into(),
-                unpin: "i".into(),
+                pin: "p".into(),
+                unpin: "u".into(),
             },
         }
     }
