@@ -23,7 +23,7 @@ build() {
 }
 
 package() {
-  cd "$srcdir/$pkgname-$pkgver"
+  cd "$srcdir/$pkgname"
 
   # Install binary
   install -Dm755 target/release/fren "$pkgdir/usr/bin/fren"
