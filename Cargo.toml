@@ -1,0 +1,16 @@
+[package]
+name = "fren"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.22.1"
+chrono = "0.4.43"
+crossterm = "0.29.0"
+dirs = "6.0.0"
+image = "0.25.9"
+lru = "0.16.3"
+natord = "1.0.9"
+ratatui = "0.30.0"
+ratatui-image = "10.0.5"
+unicode-width = "0.2.2"
