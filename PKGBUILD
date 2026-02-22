@@ -1,12 +1,12 @@
 # Maintainer: TheCrabeuh <clement.dallasenn@outlook.fr>
-pkgname=fren
+pkgname=fren-git
 pkgver=1
 pkgrel=1
 pkgdesc="a TUI file manager that let you open files and directory with any app"
 arch=('x86_64')
 url="https://github.com/TheCrabevariable/fren.git"
 makedepends=('git' 'rust')
-depends=('glibc')
+depends=('glibc' 'chafa')
 optdepends=(
   "noto-fonts-emoji: for emoji icons"
   "ttf-jetbrains-mono-nerd: for Nerd icon mode"
