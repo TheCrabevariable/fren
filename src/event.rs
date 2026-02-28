@@ -2,7 +2,6 @@ use std::io;
 
 use crossterm::event::{self, Event, KeyCode};
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::sync::atomic::Ordering;
 
 use crate::app::{App, AppMode, Focus, InputAction};
 use crate::config::Config;

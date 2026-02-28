@@ -1,9 +1,6 @@
 use std::{
     io, os::unix::fs::PermissionsExt,
-    path::Path,
     path::PathBuf,
-    io::{stdout, Write},
-    thread,
 };
 
 use ratatui::{
@@ -11,15 +8,11 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect, Alignment},
     style::{Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap, Widget},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use ratatui_image::{StatefulImage, Resize, Image};
-use ratatui_image::protocol::Protocol;
-use image::io::Reader as ImageReader;
-use image::imageops::FilterType;
-use std::sync::mpsc;
+use ratatui_image::{Image};
 use std::sync::atomic::Ordering;
 use unicode_width::UnicodeWidthStr;
 
@@ -27,7 +20,6 @@ use crate::app::{App, AppMode, ClipboardMode, Focus, InputAction};
 use crate::config::Config;
 use crate::theme::Theme;
 use crate::app::ImageKey;
-use crate::app::{IconMode};
 use crate::app::quantize;
 use crate::app::PreviewJob;
 
@@ -83,7 +75,7 @@ pub fn draw_ui(
     config: &Config,
     theme: &Theme,
 ) -> io::Result<()> {
-    let mut preview_rect = Rect::default();
+    let preview_rect = Rect::default();
     terminal.draw(|f| {
         let area = f.area();
 
@@ -485,8 +477,6 @@ pub fn draw_ui(
             // 🖼 IMAGE / PDF PREVIEW
             //
             if (is_image || is_pdf) && path.is_file() {
-                let q_width = quantize(inner.width);
-                let q_height = quantize(inner.height);
 
                 let key = ImageKey {
                     path: path.clone(),
@@ -846,25 +836,4 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(vertical[1])[1]
-}
-//
-// dir size
-//
-fn dir_size(path: &std::path::Path) -> u64 {
-    let mut size = 0;
-
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Ok(meta) = std::fs::symlink_metadata(&path) {
-                if meta.is_file() {
-                    size += meta.len();
-                } else if meta.is_dir() {
-                    size += dir_size(&path);
-                }
-            }
-        }
-    }
-
-    size
 }

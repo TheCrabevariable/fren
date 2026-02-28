@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use ratatui::layout::Rect;
 use ratatui_image::protocol::Protocol;
 use ratatui_image::picker::Picker;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Sender};
 use std::num::NonZeroUsize;
 use lru::LruCache;
 use std::sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}};
@@ -131,7 +131,6 @@ impl App {
 
         //worker thread
         thread::spawn(move || {
-            use image::imageops::FilterType;
             use image::ImageReader;
 
             while let Ok(mut job) = job_rx.recv() {
@@ -536,10 +535,6 @@ impl App {
         self.mode = AppMode::Normal;
         self.input.clear();
         self.refresh()
-    }
-    pub fn cancel_rename(&mut self) {
-        self.mode = AppMode::Normal;
-        self.input.clear();
     }
 
     pub fn open_pinned(&mut self) -> io::Result<()> {
