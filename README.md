@@ -5,6 +5,8 @@ It demark itself with a open feature letting you open files, directory with any 
 
 if you want to build it you can always clone it and cd to the dir and use 
 
+`yay -S fren-git`
+
 `makepkg -si`
 
 apparently i am too dumb to make it an aur package but if anybody want to take its time with me and explain it i will do it xd
