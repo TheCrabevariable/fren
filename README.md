@@ -11,7 +11,8 @@ if you want to build it you can always clone it and cd to the dir and use
 
 have a nice day
 
-<img width="1879" height="993" alt="image" src="https://github.com/user-attachments/assets/5ffddc66-b143-4e77-beca-39fccd3f32a3" />
+<img width="1876" height="997" alt="image" src="https://github.com/user-attachments/assets/dfd749e3-2f4f-4d2b-b403-a35e18f29294" />
+
 
 if you have problems with emoji (as i had with kitty)
 install your emoji icons for me it was
