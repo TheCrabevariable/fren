@@ -15,10 +15,13 @@ pub struct Keymaps {
     pub focus: String,
     pub pin: String,
     pub unpin: String,
+    pub go_to: String,
+    pub toggle_select: String,
 }
 
 pub struct Config {
     pub keymaps: Keymaps,
+    pub remember: bool,
 }
 
 impl Config {
@@ -48,7 +51,10 @@ impl Config {
                  create_folder = \"f\"\n\
                  rename = \"r\"\n\
                  pin = \"u\"\n\
-                 unpin = \"i\"\n";
+                 unpin = \"i\"\n\
+                  go_to = \"m\"\n\
+                  toggle_select = \" \"\n\
+                  remember = false\n";
 
             fs::write(&config_path, default_config).expect("Failed to create default config.toml");
         }
@@ -88,6 +94,9 @@ impl Config {
                         "focus" => config.keymaps.focus = value.to_string(),
                         "pin" => config.keymaps.pin = value.to_string(),
                         "unpin" => config.keymaps.unpin = value.to_string(),
+                        "go_to" => config.keymaps.go_to = value.to_string(),
+                        "toggle_select" => config.keymaps.toggle_select = value.to_string(),
+                        "remember" => config.remember = value == "true",
                         _ => {}
                     }
                 }
@@ -101,6 +110,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            remember: false,
             keymaps: Keymaps {
                 quit: "q".into(),
                 create_file: "n".into(),
@@ -116,6 +126,8 @@ impl Default for Config {
                 focus: "tab".into(),
                 pin: "u".into(),
                 unpin: "i".into(),
+                go_to: "m".into(),
+                toggle_select: " ".into(),
             },
         }
     }

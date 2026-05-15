@@ -1,9 +1,9 @@
 use std::io;
 
 use crossterm::event::{self, Event, KeyCode};
-use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui::{backend::CrosstermBackend, Terminal};
 
-use crate::app::{App, AppMode, Focus, InputAction};
+use crate::app::{App, AppMode, ConflictAction, Focus, InputAction};
 use crate::config::Config;
 use crate::theme::Theme;
 
@@ -13,13 +13,25 @@ pub fn handle_events(
     config: &Config,
     _theme: &Theme,
 ) -> io::Result<bool> {
-
     if let Event::Key(key) = event::read()? {
-
         //block input
         if app.show_help {
             if let KeyCode::Esc = key.code {
                 app.show_help = false;
+            }
+            return Ok(true);
+        }
+
+        //
+        // CONFLICT MODE
+        //
+        if let AppMode::Conflict(_) = &app.mode {
+            match key.code {
+                KeyCode::Char('s') => app.apply_conflict_action(ConflictAction::Skip)?,
+                KeyCode::Char('r') => app.apply_conflict_action(ConflictAction::Replace)?,
+                KeyCode::Char('n') => app.apply_conflict_action(ConflictAction::RenameAuto)?,
+                KeyCode::Esc => app.apply_conflict_action(ConflictAction::Cancel)?,
+                _ => {}
             }
             return Ok(true);
         }
@@ -72,6 +84,21 @@ pub fn handle_events(
                             }
                         }
 
+                        InputAction::GoTo => {
+                            let mut path_str = app.input.clone();
+                            if path_str.starts_with('~') {
+                                if let Some(home) = dirs::home_dir() {
+                                    path_str =
+                                        path_str.replacen("~", home.to_str().unwrap_or(""), 1);
+                                }
+                            }
+                            let path = std::path::PathBuf::from(&path_str);
+                            if path.exists() && path.is_dir() {
+                                app.current_dir = path;
+                                let _ = app.refresh();
+                            }
+                        }
+
                         _ => {}
                     }
 
@@ -107,7 +134,9 @@ pub fn handle_events(
                 if config.keymaps.focus == "tab" {
                     app.focus = match app.focus {
                         Focus::Files => Focus::Pinned,
-                        Focus::Pinned => Focus::Files,
+                        Focus::Pinned => Focus::Storage,
+                        Focus::Storage => Focus::Clipboard,
+                        Focus::Clipboard => Focus::Files,
                     };
                 }
             }
@@ -129,24 +158,32 @@ pub fn handle_events(
                         app.image_path = None;
 
                         // debounce
-                        app.preview_deadline = Some(
-                            std::time::Instant::now()
-                                + std::time::Duration::from_millis(60)
-                        );
+                        app.preview_deadline =
+                            Some(std::time::Instant::now() + std::time::Duration::from_millis(60));
                     }
                 }
                 Focus::Pinned => {
                     if app.pinned_selected + 1 < app.pinned.len() {
                         app.pinned_selected += 1;
+                    } else if !app.storage.is_empty() {
+                        app.focus = Focus::Storage;
+                        app.storage_selected = 0;
                     }
                 }
-            }
-            //open with enter
-            KeyCode::Enter => {
-                if config.keymaps.open == "enter" {
-                    app.start_input(InputAction::OpenWith, None);
+                Focus::Storage => {
+                    if app.storage_selected + 1 < app.storage.len() {
+                        app.storage_selected += 1;
+                    } else if !app.clipboard.is_empty() {
+                        app.focus = Focus::Clipboard;
+                        app.clipboard_selected = 0;
+                    }
                 }
-            }
+                Focus::Clipboard => {
+                    if app.clipboard_selected + 1 < app.clipboard.len() {
+                        app.clipboard_selected += 1;
+                    }
+                }
+            },
 
             KeyCode::Up => match app.focus {
                 Focus::Files => {
@@ -158,41 +195,91 @@ pub fn handle_events(
                         app.image_path = None;
 
                         // debounce
-                        app.preview_deadline = Some(
-                            std::time::Instant::now()
-                                + std::time::Duration::from_millis(60)
-                        );
+                        app.preview_deadline =
+                            Some(std::time::Instant::now() + std::time::Duration::from_millis(60));
                     }
                 }
                 Focus::Pinned => {
                     if app.pinned_selected > 0 {
                         app.pinned_selected -= 1;
+                    } else if !app.storage.is_empty() {
+                        app.focus = Focus::Storage;
+                        app.storage_selected = app.storage.len() - 1;
                     }
                 }
-            }
-            KeyCode::Right => {
-                match app.focus {
-                    Focus::Files => {
-                        app.cursor_memory
-                            .insert(app.current_dir.clone(), app.selected);
-
-                        app.enter()?;
+                Focus::Storage => {
+                    if app.storage_selected > 0 {
+                        app.storage_selected -= 1;
+                    } else if !app.pinned.is_empty() {
+                        app.focus = Focus::Pinned;
+                        app.pinned_selected = app.pinned.len() - 1;
                     }
-                    Focus::Pinned => {
-                        app.cursor_memory
-                            .insert(app.current_dir.clone(), app.selected);
-
+                }
+                Focus::Clipboard => {
+                    if app.clipboard_selected > 0 {
+                        app.clipboard_selected -= 1;
+                    } else if !app.storage.is_empty() {
+                        app.focus = Focus::Storage;
+                        app.storage_selected = app.storage.len() - 1;
+                    }
+                }
+            },
+            //open with enter
+            KeyCode::Enter => match app.focus {
+                Focus::Pinned => {
+                    if app.pinned_selected < app.pinned.len() {
                         app.open_pinned()?;
                     }
                 }
-            }
-            KeyCode::Left => app.up()?,
+                Focus::Storage => {
+                    if app.storage_selected < app.storage.len() {
+                        app.open_storage()?;
+                    }
+                }
+                Focus::Files => {
+                    if config.keymaps.open == "enter" {
+                        app.start_input(InputAction::OpenWith, None);
+                    }
+                }
+                Focus::Clipboard => {
+                    app.paste_selected()?;
+                }
+            },
+            KeyCode::Right => match app.focus {
+                Focus::Files => {
+                    app.cursor_memory
+                        .insert(app.current_dir.clone(), app.selected);
+
+                    app.enter()?;
+                }
+                Focus::Pinned => {
+                    if app.pinned_selected < app.pinned.len() {
+                        app.open_pinned()?;
+                    }
+                }
+                Focus::Storage => {
+                    if app.storage_selected < app.storage.len() {
+                        app.open_storage()?;
+                    }
+                }
+                Focus::Clipboard => {
+                    app.paste_selected()?;
+                }
+            },
+            KeyCode::Left => match app.focus {
+                Focus::Files => app.up()?,
+                _ => app.focus = Focus::Files,
+            },
 
             //
             // Keymap Controlled Actions
             //
             KeyCode::Char(c) => {
                 let pressed = c.to_string();
+
+                if pressed == config.keymaps.toggle_select && app.focus == Focus::Files {
+                    app.toggle_selection();
+                }
 
                 // Quit
                 if pressed == config.keymaps.quit {
@@ -208,9 +295,10 @@ pub fn handle_events(
                     }
                 }
                 if pressed == config.keymaps.focus {
-                    app.focus = match app.focus {
-                        Focus::Files => Focus::Pinned,
-                        Focus::Pinned => Focus::Files,
+                    app.focus = if app.focus == Focus::Files {
+                        Focus::Pinned
+                    } else {
+                        Focus::Files
                     };
                 }
                 // Create File
@@ -225,7 +313,11 @@ pub fn handle_events(
 
                 // Trash
                 if pressed == config.keymaps.trash {
-                    app.start_input(InputAction::ConfirmDelete, None);
+                    if app.focus == Focus::Clipboard {
+                        app.remove_clipboard_item();
+                    } else {
+                        app.start_input(InputAction::ConfirmDelete, None);
+                    }
                 }
 
                 // Open With
@@ -240,7 +332,11 @@ pub fn handle_events(
 
                 // Copy
                 if pressed == config.keymaps.copy {
-                    app.copy_selected();
+                    if app.focus == Focus::Clipboard {
+                        app.recopy_clipboard_item();
+                    } else {
+                        app.copy_selected();
+                    }
                 }
                 //Cut
                 if pressed == config.keymaps.cut {
@@ -248,7 +344,11 @@ pub fn handle_events(
                 }
                 //Paste
                 if pressed == config.keymaps.paste {
-                    app.paste()?;
+                    if app.focus == Focus::Clipboard {
+                        app.paste_selected()?;
+                    } else {
+                        app.paste()?;
+                    }
                 }
                 // Toggle Hidden
                 if pressed == config.keymaps.toggle_hidden {
@@ -261,6 +361,10 @@ pub fn handle_events(
 
                 if pressed == config.keymaps.unpin && app.focus == Focus::Pinned {
                     app.unpin_selected();
+                }
+
+                if pressed == config.keymaps.go_to {
+                    app.start_input(InputAction::GoTo, None);
                 }
             }
 

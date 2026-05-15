@@ -1,27 +1,24 @@
-use std::{
-    io, os::unix::fs::PermissionsExt,
-    path::PathBuf,
-};
+use std::{io, os::unix::fs::PermissionsExt, path::PathBuf};
 
 use ratatui::{
-    Terminal,
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout, Rect, Alignment},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
+    Terminal,
 };
 
-use ratatui_image::{Image};
+use ratatui_image::Image;
 use std::sync::atomic::Ordering;
 use unicode_width::UnicodeWidthStr;
 
+use crate::app::quantize;
+use crate::app::ImageKey;
+use crate::app::PreviewJob;
 use crate::app::{App, AppMode, ClipboardMode, Focus, InputAction};
 use crate::config::Config;
 use crate::theme::Theme;
-use crate::app::ImageKey;
-use crate::app::quantize;
-use crate::app::PreviewJob;
 
 //
 // Human readable size
@@ -75,7 +72,7 @@ pub fn draw_ui(
     config: &Config,
     theme: &Theme,
 ) -> io::Result<()> {
-    let preview_rect = Rect::default();
+    let _preview_rect = Rect::default();
     terminal.draw(|f| {
         let area = f.area();
 
@@ -119,11 +116,15 @@ pub fn draw_ui(
             ])
             .split(vertical[1]);
 
-        let preview_area = columns[2];
+        let _preview_area = columns[2];
 
         let left_chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+            .constraints([
+                Constraint::Percentage(56),
+                Constraint::Percentage(14),
+                Constraint::Percentage(30),
+            ])
             .split(columns[0]);
 
         let middle_chunks = Layout::default()
@@ -132,27 +133,27 @@ pub fn draw_ui(
             .split(columns[1]);
 
         //
-        // PINNED
+        // SIDEBAR (Pinned + Storage)
         //
         let pinned_focused = app.focus == Focus::Pinned;
+        let storage_focused = app.focus == Focus::Storage;
 
-        let pinned_items: Vec<ListItem> = app
-            .pinned
-            .iter()
-            .map(|p| {
-                let name = p
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("home")
-                    .to_string();
-
+        // Pinned list
+        let mut pinned_items: Vec<ListItem> = Vec::new();
+        for p in &app.pinned {
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("home")
+                .to_string();
+            pinned_items.push(
                 ListItem::new(name).style(Style::default().fg(if pinned_focused {
                     theme.foreground
                 } else {
                     theme.muted
-                }))
-            })
-            .collect();
+                })),
+            );
+        }
 
         let mut pinned_state = ListState::default();
         pinned_state.select(Some(app.pinned_selected));
@@ -183,31 +184,113 @@ pub fn draw_ui(
 
         f.render_stateful_widget(pinned_list, left_chunks[0], &mut pinned_state);
 
+        // Storage list
+        let mut storage_items: Vec<ListItem> = Vec::new();
+        for p in &app.storage {
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("drive")
+                .to_string();
+            storage_items.push(ListItem::new(name).style(Style::default().fg(
+                if storage_focused {
+                    theme.foreground
+                } else {
+                    theme.muted
+                },
+            )));
+        }
+
+        let mut storage_state = ListState::default();
+        storage_state.select(Some(app.storage_selected));
+
+        let storage_list = List::new(storage_items)
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        " Storage ",
+                        Style::default()
+                            .fg(if storage_focused {
+                                theme.focus_border
+                            } else {
+                                theme.muted
+                            })
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border)),
+            )
+            .highlight_style(
+                Style::default()
+                    .bg(theme.focus_border)
+                    .fg(theme.background)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(" ");
+
+        f.render_stateful_widget(storage_list, left_chunks[1], &mut storage_state);
+
         //
         // CLIPBOARD
         //
-        let clipboard_text = if let Some((path, mode)) = &app.clipboard {
+        let clipboard_focused = app.focus == Focus::Clipboard;
+
+        let mut clipboard_items: Vec<ListItem> = Vec::new();
+        for (path, mode) in &app.clipboard {
             let name = path
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("Unknown");
+            let label = match mode {
+                ClipboardMode::Copy => format!("C: {}", name),
+                ClipboardMode::Cut => format!("X: {}", name),
+            };
+            clipboard_items.push(
+                ListItem::new(label).style(Style::default().fg(if clipboard_focused {
+                    theme.foreground
+                } else {
+                    theme.muted
+                })),
+            );
+        }
 
-            match mode {
-                ClipboardMode::Copy => format!("Copy: {}", name),
-                ClipboardMode::Cut => format!("Cut: {}", name),
-            }
+        if clipboard_items.is_empty() {
+            clipboard_items.push(ListItem::new("Empty").style(Style::default().fg(theme.muted)));
+        }
+
+        let mut clip_state = ListState::default();
+        let clip_idx = if app.clipboard.is_empty() {
+            None
         } else {
-            "Empty".to_string()
+            Some(app.clipboard_selected.min(app.clipboard.len() - 1))
         };
+        clip_state.select(clip_idx);
 
-        let clipboard = Paragraph::new(clipboard_text).block(
-            Block::default()
-                .title(" Clipboard ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.border)),
-        );
+        let clipboard_list = List::new(clipboard_items)
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        " Clipboard ",
+                        Style::default()
+                            .fg(if clipboard_focused {
+                                theme.focus_border
+                            } else {
+                                theme.muted
+                            })
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(theme.border)),
+            )
+            .highlight_style(
+                Style::default()
+                    .bg(theme.focus_border)
+                    .fg(theme.background)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(" ");
 
-        f.render_widget(clipboard, left_chunks[1]);
+        f.render_stateful_widget(clipboard_list, left_chunks[2], &mut clip_state);
 
         //
         // FILES
@@ -217,7 +300,8 @@ pub fn draw_ui(
         let items: Vec<ListItem> = app
             .entries
             .iter()
-            .map(|e| {
+            .enumerate()
+            .map(|(i, e)| {
                 let path = e.path();
                 let name = e.file_name().to_string_lossy().into_owned();
 
@@ -235,7 +319,14 @@ pub fn draw_ui(
                     theme.muted
                 };
 
+                let sel = if app.selected_indices.contains(&i) {
+                    "* "
+                } else {
+                    "  "
+                };
+
                 let line = Line::from(vec![
+                    Span::raw(sel),
                     Span::styled(icon, Style::default().fg(theme.muted)),
                     Span::styled(name, Style::default().fg(color)),
                 ]);
@@ -288,7 +379,6 @@ pub fn draw_ui(
         let metadata_area = middle_chunks[1];
 
         let metadata_lines: Vec<Line> = if let Some(entry) = app.entries.get(app.selected) {
-
             let path = entry.path().to_path_buf();
 
             match std::fs::symlink_metadata(&path) {
@@ -418,9 +508,7 @@ pub fn draw_ui(
         // PREVIEW PANEL
         //
 
-        let preview_block = Block::default()
-            .title(" Preview ")
-            .borders(Borders::ALL);
+        let preview_block = Block::default().title(" Preview ").borders(Borders::ALL);
 
         f.render_widget(preview_block.clone(), columns[2]);
         let inner = preview_block.inner(columns[2]);
@@ -444,7 +532,6 @@ pub fn draw_ui(
             return;
         }
 
-
         //
         // 🔥 POLL ASYNC IMAGE RESULT
         //
@@ -466,10 +553,7 @@ pub fn draw_ui(
                 .unwrap_or("")
                 .to_ascii_lowercase();
 
-            let is_image = matches!(
-                ext.as_str(),
-                "png" | "jpg" | "jpeg" | "webp" | "gif"
-            );
+            let is_image = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif");
 
             let is_pdf = ext == "pdf";
 
@@ -477,7 +561,6 @@ pub fn draw_ui(
             // 🖼 IMAGE / PDF PREVIEW
             //
             if (is_image || is_pdf) && path.is_file() {
-
                 let key = ImageKey {
                     path: path.clone(),
                     width: quantize(inner.width),
@@ -496,7 +579,6 @@ pub fn draw_ui(
                 let reload = size_changed || path_changed;
 
                 if reload && !app.image_loading {
-
                     if inner.width < 10 || inner.height < 5 {
                         let loading = Paragraph::new("…").alignment(Alignment::Center);
                         f.render_widget(loading, inner);
@@ -510,21 +592,21 @@ pub fn draw_ui(
                         .store(request_id, Ordering::Relaxed);
 
                     app.image = None;
-                    app.preview_deadline = Some(
-                        std::time::Instant::now()
-                            + std::time::Duration::from_millis(60)
-                    );
+                    app.preview_deadline =
+                        Some(std::time::Instant::now() + std::time::Duration::from_millis(60));
 
                     app.image_size = Some((inner.width, inner.height));
                     app.image_path = Some(path.clone());
                     app.image_loading = true;
 
-                    app.preview_job_tx.send(PreviewJob {
-                        request_id,
-                        path: path.clone(),
-                        inner,
-                        is_pdf,
-                    }).ok();
+                    app.preview_job_tx
+                        .send(PreviewJob {
+                            request_id,
+                            path: path.clone(),
+                            inner,
+                            is_pdf,
+                        })
+                        .ok();
                 }
 
                 // render image
@@ -532,8 +614,7 @@ pub fn draw_ui(
                     let widget = Image::new(img);
                     f.render_widget(widget, inner);
                 } else {
-                    let loading = Paragraph::new("Loading preview…")
-                        .alignment(Alignment::Center);
+                    let loading = Paragraph::new("Loading preview…").alignment(Alignment::Center);
                     f.render_widget(loading, inner);
                 }
             } else {
@@ -547,11 +628,25 @@ pub fn draw_ui(
 
                 let is_binary_ext = matches!(
                     ext.as_str(),
-                    "png" | "jpg" | "jpeg" | "webp" | "gif"
-                        | "mp3" | "wav" | "flac"
-                        | "mp4" | "mkv" | "mov"
-                        | "zip" | "tar" | "gz" | "rar"
-                        | "exe" | "bin" | "so" | "pdf"
+                    "png"
+                        | "jpg"
+                        | "jpeg"
+                        | "webp"
+                        | "gif"
+                        | "mp3"
+                        | "wav"
+                        | "flac"
+                        | "mp4"
+                        | "mkv"
+                        | "mov"
+                        | "zip"
+                        | "tar"
+                        | "gz"
+                        | "rar"
+                        | "exe"
+                        | "bin"
+                        | "so"
+                        | "pdf"
                 );
 
                 let is_probably_text = !is_binary_ext;
@@ -586,7 +681,11 @@ pub fn draw_ui(
                                 let b_dir = b.file_type().map(|t| t.is_dir()).unwrap_or(false);
 
                                 if a_dir != b_dir {
-                                    return if a_dir { Ordering::Less } else { Ordering::Greater };
+                                    return if a_dir {
+                                        Ordering::Less
+                                    } else {
+                                        Ordering::Greater
+                                    };
                                 }
 
                                 a.file_name().cmp(&b.file_name())
@@ -607,12 +706,10 @@ pub fn draw_ui(
                         }
                     }
 
-                    let preview = Paragraph::new(lines.join("\n"))
-                        .wrap(Wrap { trim: false });
+                    let preview = Paragraph::new(lines.join("\n")).wrap(Wrap { trim: false });
 
                     f.render_widget(preview, inner);
-                }
-                else if is_probably_text && path.is_file() {
+                } else if is_probably_text && path.is_file() {
                     let content = std::fs::read_to_string(&path)
                         .map(|s| {
                             s.lines()
@@ -622,12 +719,10 @@ pub fn draw_ui(
                         })
                         .unwrap_or_else(|_| "Unable to read file".to_string());
 
-                    let preview = Paragraph::new(content)
-                        .wrap(Wrap { trim: false });
+                    let preview = Paragraph::new(content).wrap(Wrap { trim: false });
 
                     f.render_widget(preview, inner);
-                }
-                else {
+                } else {
                     let preview = Paragraph::new("No preview available")
                         .alignment(Alignment::Center)
                         .wrap(Wrap { trim: false });
@@ -642,11 +737,17 @@ pub fn draw_ui(
         //
         let status_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Min(0),
-                Constraint::Length(20),
-            ])
+            .constraints([Constraint::Min(0), Constraint::Min(20)])
             .split(vertical[2]);
+
+        let dir_count = app.entries.iter().filter(|e| e.path().is_dir()).count();
+        let file_count = app.entries.len().saturating_sub(dir_count);
+        let sel_count = app.selected_indices.len();
+        let counts = if sel_count > 0 {
+            format!("{}s {}f {}d  ", sel_count, file_count, dir_count)
+        } else {
+            format!("{}f {}d  ", file_count, dir_count)
+        };
 
         let left_status = Paragraph::new(Line::from(vec![
             Span::styled(
@@ -655,28 +756,28 @@ pub fn draw_ui(
                     .fg(theme.focus_border)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(format!(
-                " /: help ",
-            )),
+            Span::raw("/: help "),
         ]))
         .style(Style::default().bg(theme.status_bg).fg(theme.status_fg));
 
         f.render_widget(left_status, status_chunks[0]);
 
-        let right_status = Paragraph::new(
-            Line::from(Span::styled(
+        let right_status = Paragraph::new(Line::from(vec![
+            Span::styled(
+                counts,
+                Style::default().fg(theme.status_fg),
+            ),
+            Span::styled(
                 format!("Sort: {:?}", app.sort_mode),
                 Style::default()
                     .fg(theme.focus_border)
                     .add_modifier(Modifier::BOLD),
-            ))
-        )
+            ),
+        ]))
         .alignment(Alignment::Right)
         .style(Style::default().bg(theme.status_bg).fg(theme.status_fg));
 
         f.render_widget(right_status, status_chunks[1]);
-
-
 
         //
         // INPUT MODAL
@@ -692,6 +793,7 @@ pub fn draw_ui(
                 InputAction::CreateFolder => " Create Folder ",
                 InputAction::ConfirmDelete => " Confirm Delete ",
                 InputAction::OpenWith => " Open With ",
+                InputAction::GoTo => " Go To Path ",
             };
 
             let input = Paragraph::new(app.input.as_str())
@@ -712,15 +814,59 @@ pub fn draw_ui(
             f.render_widget(input, popup_area);
         }
 
+        //
+        // CONFLICT DIALOG
+        //
+        if let AppMode::Conflict(state) = &app.mode {
+            render_dim_overlay(f, area, theme);
+
+            let popup_area = centered_rect(50, 25, area);
+
+            let (source, _dest, _mode) = &state.pending[state.index];
+            let name = source
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Unknown");
+
+            let lines = vec![
+                Line::from(Span::raw("")),
+                Line::from(Span::styled(
+                    format!(" \"{}\" already exists", name),
+                    Style::default().fg(theme.foreground),
+                )),
+                Line::from(Span::raw("")),
+                Line::from(Span::styled(
+                    "  [S]kip  [R]eplace  re[n]ame  [Esc] cancel",
+                    Style::default().fg(theme.muted),
+                )),
+                Line::from(Span::raw("")),
+            ];
+
+            let dialog = Paragraph::new(lines)
+                .block(
+                    Block::default()
+                        .title(Span::styled(
+                            " File Conflict ",
+                            Style::default()
+                                .fg(theme.focus_border)
+                                .add_modifier(Modifier::BOLD),
+                        ))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(theme.border)),
+                )
+                .alignment(Alignment::Center);
+
+            f.render_widget(Clear, popup_area);
+            f.render_widget(dialog, popup_area);
+        }
+
         if app.show_help {
             draw_help_popup(f, area, config, theme);
         }
-
     })?;
 
     Ok(())
 }
-
 
 //
 // Dim overlay
@@ -738,12 +884,7 @@ fn render_dim_overlay(f: &mut ratatui::Frame, area: Rect, theme: &Theme) {
 //
 // Help popup
 //
-fn draw_help_popup(
-    f: &mut ratatui::Frame,
-    area: Rect,
-    config: &Config,
-    theme: &Theme,
-) {
+fn draw_help_popup(f: &mut ratatui::Frame, area: Rect, config: &Config, theme: &Theme) {
     render_dim_overlay(f, area, theme);
 
     let help_text = vec![
@@ -756,16 +897,34 @@ fn draw_help_popup(
         Line::from(""),
         Line::from(format!("Open               : {}", config.keymaps.open)),
         Line::from(format!("Delete             : {}", config.keymaps.trash)),
-        Line::from(format!("Create file        : {}", config.keymaps.create_file)),
-        Line::from(format!("Create folder      : {}", config.keymaps.create_folder)),
+        Line::from(format!(
+            "Create file        : {}",
+            config.keymaps.create_file
+        )),
+        Line::from(format!(
+            "Create folder      : {}",
+            config.keymaps.create_folder
+        )),
         Line::from(format!("Rename             : {}", config.keymaps.rename)),
         Line::from(format!("Copy               : {}", config.keymaps.copy)),
         Line::from(format!("Cut                : {}", config.keymaps.cut)),
         Line::from(format!("Paste              : {}", config.keymaps.paste)),
-        Line::from(format!("Toggle hidden      : {}", config.keymaps.toggle_hidden)),
+        Line::from(format!(
+            "Toggle hidden      : {}",
+            config.keymaps.toggle_hidden
+        )),
         Line::from(format!("Pin                : {}", config.keymaps.pin)),
         Line::from(format!("Unpin              : {}", config.keymaps.unpin)),
         Line::from(format!("Sorting mode       : {}", config.keymaps.sort)),
+        Line::from(format!("Go to path         : {}", config.keymaps.go_to)),
+        Line::from(format!(
+            "Select/Deselect   : {}",
+            if config.keymaps.toggle_select == " " {
+                "Space".to_string()
+            } else {
+                config.keymaps.toggle_select.clone()
+            }
+        )),
         Line::from(format!("Focus switch       : {}", config.keymaps.focus)),
         Line::from(format!("Quit               : {}", config.keymaps.quit)),
         Line::from(""),
@@ -792,21 +951,15 @@ fn draw_help_popup(
     };
 
     let paragraph = Paragraph::new(help_text)
-        .style(
-            Style::default()
-                .fg(theme.foreground)
-                .bg(theme.background),
-        )
+        .style(Style::default().fg(theme.foreground).bg(theme.background))
         .block(
             Block::default()
-                .title(
-                    Span::styled(
-                        " Help ",
-                        Style::default()
-                            .fg(theme.focus_border)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                )
+                .title(Span::styled(
+                    " Help ",
+                    Style::default()
+                        .fg(theme.focus_border)
+                        .add_modifier(Modifier::BOLD),
+                ))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(theme.border)),
         );

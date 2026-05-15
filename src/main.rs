@@ -36,7 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load();
     let theme = Theme::load();
 
-    let mut app = App::new()?;
+    let mut app = App::new(config.remember)?;
     app.load_pinned()?;
 
     // Main loop
@@ -48,6 +48,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         ui::draw_ui(&mut terminal, &mut app, &config, &theme)?;
+    }
+
+    if config.remember {
+        app.save_session()?;
     }
 
     disable_raw_mode()?;
