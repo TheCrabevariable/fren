@@ -812,6 +812,10 @@ pub fn draw_ui(
 
             f.render_widget(Clear, popup_area);
             f.render_widget(input, popup_area);
+
+            let cursor_x = popup_area.x + 1
+                + UnicodeWidthStr::width(&app.input[..app.input_cursor.min(app.input.len())]) as u16;
+            f.set_cursor_position((cursor_x, popup_area.y + 1));
         }
 
         //

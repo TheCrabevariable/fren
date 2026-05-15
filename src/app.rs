@@ -104,6 +104,7 @@ pub struct App {
     pub show_hidden: bool,
     pub mode: AppMode,
     pub input: String,
+    pub input_cursor: usize,
     pub focus: Focus,
     pub pinned: Vec<PathBuf>,
     pub pinned_selected: usize,
@@ -250,6 +251,7 @@ impl App {
             clipboard_selected: 0,
             mode: AppMode::Normal,
             input: String::new(),
+            input_cursor: 0,
             show_hidden,
             focus: Focus::Files,
             pinned: dirs::home_dir().into_iter().collect(),
@@ -807,6 +809,7 @@ impl App {
 
     pub fn start_input(&mut self, action: InputAction, prefill: Option<String>) {
         self.input = prefill.unwrap_or_default();
+        self.input_cursor = self.input.len();
         self.mode = AppMode::Input(action);
     }
 

@@ -103,20 +103,63 @@ pub fn handle_events(
                     }
 
                     app.input.clear();
+                    app.input_cursor = 0;
                     app.mode = AppMode::Normal;
                 }
 
                 KeyCode::Esc => {
                     app.input.clear();
+                    app.input_cursor = 0;
                     app.mode = AppMode::Normal;
                 }
 
+                KeyCode::Left => {
+                    if app.input_cursor > 0 {
+                        let mut prev = app.input_cursor - 1;
+                        while !app.input.is_char_boundary(prev) {
+                            prev -= 1;
+                        }
+                        app.input_cursor = prev;
+                    }
+                }
+
+                KeyCode::Right => {
+                    for (byte_idx, _) in app.input.char_indices() {
+                        if byte_idx > app.input_cursor {
+                            app.input_cursor = byte_idx;
+                            break;
+                        }
+                    }
+                }
+
+                KeyCode::Home => {
+                    app.input_cursor = 0;
+                }
+
+                KeyCode::End => {
+                    app.input_cursor = app.input.len();
+                }
+
                 KeyCode::Backspace => {
-                    app.input.pop();
+                    if app.input_cursor > 0 {
+                        let mut prev = app.input_cursor - 1;
+                        while !app.input.is_char_boundary(prev) {
+                            prev -= 1;
+                        }
+                        app.input.remove(prev);
+                        app.input_cursor = prev;
+                    }
+                }
+
+                KeyCode::Delete => {
+                    if app.input_cursor < app.input.len() {
+                        app.input.remove(app.input_cursor);
+                    }
                 }
 
                 KeyCode::Char(c) => {
-                    app.input.push(c);
+                    app.input.insert(app.input_cursor, c);
+                    app.input_cursor += c.len_utf8();
                 }
 
                 _ => {}
@@ -229,11 +272,13 @@ pub fn handle_events(
                 Focus::Pinned => {
                     if app.pinned_selected < app.pinned.len() {
                         app.open_pinned()?;
+                        app.focus = Focus::Files;
                     }
                 }
                 Focus::Storage => {
                     if app.storage_selected < app.storage.len() {
                         app.open_storage()?;
+                        app.focus = Focus::Files;
                     }
                 }
                 Focus::Files => {
@@ -255,11 +300,13 @@ pub fn handle_events(
                 Focus::Pinned => {
                     if app.pinned_selected < app.pinned.len() {
                         app.open_pinned()?;
+                        app.focus = Focus::Files;
                     }
                 }
                 Focus::Storage => {
                     if app.storage_selected < app.storage.len() {
                         app.open_storage()?;
+                        app.focus = Focus::Files;
                     }
                 }
                 Focus::Clipboard => {
