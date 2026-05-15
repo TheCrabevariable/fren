@@ -19,10 +19,6 @@ install your emoji icons for me it was
 
 `sudo pacman -S noto-fonts-emoji`
 
-add this to you shell
-
-`export FREN_ICON_MODE=emoji`
-
 add this in you terminal
 
 `symbol_map U+1F300-U+1F9FF Noto Color Emoji`
