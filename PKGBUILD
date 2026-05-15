@@ -1,7 +1,7 @@
 # Maintainer: TheCrabeuh <clement.dallasenn@outlook.fr>
 
 pkgname=fren-git
-pkgver=2.0
+pkgver=2.1
 pkgrel=1
 pkgdesc="A TUI file manager that lets you open files and directories with any app"
 arch=('x86_64')
@@ -33,3 +33,4 @@ package() {
   install -Dm644 assets/fren.png \
     "$pkgdir/usr/share/icons/hicolor/256x256/apps/fren.png"
 }
+
