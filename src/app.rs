@@ -944,11 +944,6 @@ fn detect_icon_mode() -> IconMode {
         return IconMode::Ascii;
     }
 
-    // Kitty rule (force ASCII)
-    if term.contains("kitty") || term_program.contains("kitty") {
-        return IconMode::Ascii;
-    }
-
     // Default modern → Emoji
     IconMode::Emoji
 }
