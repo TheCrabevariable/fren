@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Fren
 Comment=Fast terminal file manager written in rust with opening features
-Exec=kitty -e fren
+Exec=fren
 Icon=fren
 Type=Application
 Categories=Utility;FileManager;
