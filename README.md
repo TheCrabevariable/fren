@@ -47,8 +47,7 @@ makepkg -si
 | `q` | Quit |
 > All keybindings are configurable in `~/.config/fren/config.toml`
 ## Screenshot
-<img width="1880" height="995" alt="fren screenshot" src="https://github.com/user-attachments/assets/5ffddc66-b143-4e77-beca-39fccd3f32a3" />
-
+<img width="1884" height="1005" alt="image" src="https://github.com/user-attachments/assets/f7138bd9-2aca-4ff2-aa26-1e5c25a3865c" />
 ## Emoji / Icons
 If emoji don't display properly (common in Kitty):
 ```bash
