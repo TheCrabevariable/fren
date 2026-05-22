@@ -6,5 +6,4 @@ Icon=fren
 Type=Application
 Categories=Utility;FileManager;
 Terminal=true
-Categories=Utility;FileManager
 Keywords=File;Manager;Tui;Console
