@@ -1,28 +1,25 @@
 use std::{io, os::unix::fs::PermissionsExt, path::PathBuf};
 
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
-    Terminal,
 };
 
 use ratatui_image::Image;
 use std::sync::atomic::Ordering;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::quantize;
 use crate::app::ImageKey;
 use crate::app::PreviewJob;
+use crate::app::quantize;
 use crate::app::{App, AppMode, ClipboardMode, Focus, InputAction};
 use crate::config::Config;
 use crate::theme::Theme;
 
-//
-// Human readable size
-//
 fn format_size(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     const MB: f64 = KB * 1024.0;
@@ -41,9 +38,6 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-//
-// Human readable permissions
-//
 fn format_permissions(mode: u32) -> String {
     let flags = [
         (0o400, 'r'),
@@ -63,16 +57,12 @@ fn format_permissions(mode: u32) -> String {
         .collect()
 }
 
-//
-// UI Rendering
-//
 pub fn draw_ui(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     app: &mut App,
     config: &Config,
     theme: &Theme,
 ) -> io::Result<()> {
-    let _preview_rect = Rect::default();
     terminal.draw(|f| {
         let area = f.area();
 
@@ -156,7 +146,9 @@ pub fn draw_ui(
         }
 
         let mut pinned_state = ListState::default();
-        pinned_state.select(Some(app.pinned_selected));
+        if !app.pinned.is_empty() {
+            pinned_state.select(Some(app.pinned_selected));
+        }
 
         let pinned_list = List::new(pinned_items)
             .block(
@@ -202,7 +194,9 @@ pub fn draw_ui(
         }
 
         let mut storage_state = ListState::default();
-        storage_state.select(Some(app.storage_selected));
+        if !app.storage.is_empty() {
+            storage_state.select(Some(app.storage_selected));
+        }
 
         let storage_list = List::new(storage_items)
             .block(
@@ -245,13 +239,13 @@ pub fn draw_ui(
                 ClipboardMode::Copy => format!("C: {}", name),
                 ClipboardMode::Cut => format!("X: {}", name),
             };
-            clipboard_items.push(
-                ListItem::new(label).style(Style::default().fg(if clipboard_focused {
+            clipboard_items.push(ListItem::new(label).style(Style::default().fg(
+                if clipboard_focused {
                     theme.foreground
                 } else {
                     theme.muted
-                })),
-            );
+                },
+            )));
         }
 
         if clipboard_items.is_empty() {
@@ -379,117 +373,84 @@ pub fn draw_ui(
         let metadata_area = middle_chunks[1];
 
         let metadata_lines: Vec<Line> = if let Some(entry) = app.entries.get(app.selected) {
-            let path = entry.path().to_path_buf();
+            if app.selected != app.meta_selected {
+                app.meta_cache.clear();
+                let path = entry.path();
 
-            match std::fs::symlink_metadata(&path) {
-                Ok(meta) => {
-                    // -------- File name (OWNED) --------
-                    let file_name: String = path
+                if let Ok(meta) = std::fs::symlink_metadata(&path) {
+                    let file_name = path
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .unwrap_or("Unknown")
-                        .to_string();
+                        .unwrap_or("Unknown");
 
-                    // -------- File type (OWNED) --------
-                    let file_type: String = if meta.file_type().is_symlink() {
-                        "Symlink".to_string()
+                    let file_type = if meta.file_type().is_symlink() {
+                        "Symlink"
                     } else if meta.is_dir() {
-                        "Directory".to_string()
+                        "Directory"
                     } else if meta.is_file() {
-                        "File".to_string()
+                        "File"
                     } else {
-                        "Other".to_string()
+                        "Other"
                     };
-                    //---------- Resolution of img -----------
-                    let resolution_line = if meta.is_file() {
-                        if let Some((w, h)) = crate::app::get_dimensions(&path) {
-                            Some(Line::from(vec![
-                                Span::styled("Resolution ", Style::default().fg(theme.muted)),
-                                Span::raw(format!("{}x{}", w, h)),
-                            ]))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-                    // -------- Size (OWNED) --------
-                    let size: String = if meta.is_file() {
+
+                    let size = if meta.is_file() {
                         format_size(meta.len())
                     } else if meta.is_dir() {
-                        if let Ok(entries) = std::fs::read_dir(&path) {
-                            let total: u64 = entries
-                                .flatten()
-                                .filter_map(|e| e.metadata().ok())
-                                .filter(|m| m.is_file())
-                                .map(|m| m.len())
-                                .sum();
-
-                            format_size(total)
-                        } else {
-                            "-".to_string()
-                        }
+                        "dir".to_string()
                     } else {
                         "-".to_string()
                     };
 
-                    // -------- Modified time (OWNED) --------
-                    let modified: String = meta
+                    let modified = meta
                         .modified()
                         .ok()
-                        .and_then(|time| {
+                        .map(|time| {
                             let datetime: chrono::DateTime<chrono::Local> = time.into();
-                            Some(datetime.format("%Y-%m-%d %H:%M:%S").to_string())
+                            datetime.format("%Y-%m-%d %H:%M:%S").to_string()
                         })
                         .unwrap_or_else(|| "Unknown".to_string());
 
-                    // -------- Permissions (OWNED) --------
                     let mode = meta.permissions().mode();
-                    let perms: String = format_permissions(mode);
-                    let octal: String = format!("{:o}", mode & 0o777);
+                    let perms = format_permissions(mode);
+                    let octal = format!("{:o}", mode & 0o777);
 
-                    let path_string: String = path.display().to_string();
-
-                    let mut lines = vec![
-                        Line::from(vec![
-                            Span::styled("Name      ", Style::default().fg(theme.muted)),
-                            Span::styled(file_name, Style::default().fg(theme.foreground)),
-                        ]),
-                        Line::from(vec![
-                            Span::styled("Type      ", Style::default().fg(theme.muted)),
-                            Span::raw(file_type),
-                        ]),
-                        Line::from(vec![
-                            Span::styled("Size      ", Style::default().fg(theme.muted)),
-                            Span::raw(size),
-                        ]),
-                        Line::from(vec![
-                            Span::styled("Perms     ", Style::default().fg(theme.muted)),
-                            Span::raw(format!("{} ({})", perms, octal)),
-                        ]),
-                        Line::from(vec![
-                            Span::styled("Modified  ", Style::default().fg(theme.muted)),
-                            Span::raw(modified),
-                        ]),
-                        Line::from(""),
-                        Line::from(vec![
-                            Span::styled("Path      ", Style::default().fg(theme.muted)),
-                            Span::styled(path_string, Style::default().fg(theme.status_fg)),
-                        ]),
-                    ];
-
-                    if let Some(res_line) = resolution_line {
-                        lines.insert(2, res_line);
+                    app.meta_cache.push(("Name".into(), file_name.to_string()));
+                    app.meta_cache.push(("Type".into(), file_type.to_string()));
+                    if meta.is_file()
+                        && let Some((w, h)) = crate::app::get_dimensions(&path)
+                    {
+                        app.meta_cache
+                            .push(("Resolution".into(), format!("{}x{}", w, h)));
                     }
-                    lines
+                    app.meta_cache.push(("Size".into(), size));
+                    app.meta_cache
+                        .push(("Perms".into(), format!("{} ({})", perms, octal)));
+                    app.meta_cache.push(("Modified".into(), modified));
+                    app.meta_cache
+                        .push(("Path".into(), path.display().to_string()));
+                } else {
+                    app.meta_cache
+                        .push(("Error".into(), "Unable to read metadata".into()));
                 }
-                Err(_) => {
-                    vec![Line::from(Span::styled(
-                        "Unable to read metadata",
+
+                app.meta_selected = app.selected;
+            }
+
+            let mut lines: Vec<Line> = Vec::with_capacity(app.meta_cache.len() + 1);
+            for (label, value) in &app.meta_cache {
+                if label == "Error" {
+                    lines.push(Line::from(Span::styled(
+                        value,
                         Style::default().fg(theme.muted),
-                    ))]
+                    )));
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("{:12}", label), Style::default().fg(theme.muted)),
+                        Span::styled(value.clone(), Style::default().fg(theme.foreground)),
+                    ]));
                 }
             }
+            lines
         } else {
             vec![Line::from(Span::styled(
                 "No file selected",
@@ -514,30 +475,16 @@ pub fn draw_ui(
         let inner = preview_block.inner(columns[2]);
 
         //
-        // debounce guard
-        //
-        let mut allow_preview = true;
-
-        if let Some(deadline) = app.preview_deadline {
-            if std::time::Instant::now() < deadline {
-                allow_preview = false;
-            } else {
-                app.preview_deadline = None;
-            }
-        }
-
-        if !allow_preview {
-            let loading = Paragraph::new("…").alignment(Alignment::Center);
-            f.render_widget(loading, inner);
-            return;
-        }
-
-        //
         // 🔥 POLL ASYNC IMAGE RESULT
         //
         if let Some(rx) = &app.image_rx {
             while let Ok((id, result)) = rx.try_recv() {
                 if id == app.image_request_id {
+                    if result.is_none()
+                        && let Some(path) = &app.image_path
+                    {
+                        app.preview_failed.insert(path.clone());
+                    }
                     app.image = result;
                     app.image_loading = false;
                 }
@@ -578,41 +525,57 @@ pub fn draw_ui(
                 let path_changed = app.image_path.as_ref() != Some(&path);
                 let reload = size_changed || path_changed;
 
-                if reload && !app.image_loading {
+                let failed = app.preview_failed.contains(&path);
+
+                if reload && !app.image_loading && !failed {
                     if inner.width < 10 || inner.height < 5 {
                         let loading = Paragraph::new("…").alignment(Alignment::Center);
                         f.render_widget(loading, inner);
                         return;
                     }
 
-                    app.image_request_id = app.image_request_id.wrapping_add(1);
-                    let request_id = app.image_request_id;
-
-                    app.image_request_atomic
-                        .store(request_id, Ordering::Relaxed);
-
-                    app.image = None;
-                    app.preview_deadline =
-                        Some(std::time::Instant::now() + std::time::Duration::from_millis(60));
-
-                    app.image_size = Some((inner.width, inner.height));
-                    app.image_path = Some(path.clone());
-                    app.image_loading = true;
-
-                    app.preview_job_tx
-                        .send(PreviewJob {
-                            request_id,
+                    // Try synchronous cache path first (avoids worker round-trip)
+                    if !is_pdf && let Some(protocol) = app.try_protocol_from_cache(&path, inner) {
+                        let key = ImageKey {
                             path: path.clone(),
-                            inner,
-                            is_pdf,
-                        })
-                        .ok();
+                            width: quantize(inner.width),
+                            height: quantize(inner.height),
+                        };
+                        app.image_cache.lock().unwrap().put(key, protocol.clone());
+                        app.image = Some(protocol);
+                        app.image_loading = false;
+                        app.image_path = Some(path.clone());
+                        app.image_size = Some((inner.width, inner.height));
+                    } else {
+                        app.image_request_id = app.image_request_id.wrapping_add(1);
+                        let request_id = app.image_request_id;
+                        app.image_request_atomic
+                            .store(request_id, Ordering::Relaxed);
+
+                        app.image = None;
+
+                        app.image_size = Some((inner.width, inner.height));
+                        app.image_path = Some(path.clone());
+                        app.image_loading = true;
+
+                        app.preview_job_tx
+                            .send(PreviewJob {
+                                request_id,
+                                path: path.clone(),
+                                inner,
+                                is_pdf,
+                            })
+                            .ok();
+                    }
                 }
 
-                // render image
                 if let Some(img) = &app.image {
                     let widget = Image::new(img);
                     f.render_widget(widget, inner);
+                } else if failed {
+                    let no_preview =
+                        Paragraph::new("No preview available").alignment(Alignment::Center);
+                    f.render_widget(no_preview, inner);
                 } else {
                     let loading = Paragraph::new("Loading preview…").alignment(Alignment::Center);
                     f.render_widget(loading, inner);
@@ -665,10 +628,11 @@ pub fn draw_ui(
                             let mut items: Vec<_> = read_dir
                                 .flatten()
                                 .filter(|e| {
-                                    if let Some(name) = e.file_name().to_str() {
-                                        if !app.show_hidden && name.starts_with('.') {
-                                            return false;
-                                        }
+                                    if let Some(name) = e.file_name().to_str()
+                                        && !app.show_hidden
+                                        && name.starts_with('.')
+                                    {
+                                        return false;
                                     }
                                     true
                                 })
@@ -763,10 +727,7 @@ pub fn draw_ui(
         f.render_widget(left_status, status_chunks[0]);
 
         let right_status = Paragraph::new(Line::from(vec![
-            Span::styled(
-                counts,
-                Style::default().fg(theme.status_fg),
-            ),
+            Span::styled(counts, Style::default().fg(theme.status_fg)),
             Span::styled(
                 format!("Sort: {:?}", app.sort_mode),
                 Style::default()
@@ -785,7 +746,11 @@ pub fn draw_ui(
         if let AppMode::Input(action) = &app.mode {
             render_dim_overlay(f, area, theme);
 
-            let popup_area = centered_rect(60, 20, area);
+            let is_open_with = matches!(action, InputAction::OpenWith);
+            let has_quick = is_open_with && !config.quick_apps.is_empty();
+            let popup_height = if has_quick { 35 } else { 20 };
+
+            let popup_area = centered_rect(60, popup_height, area);
 
             let title_text = match action {
                 InputAction::Rename => " Rename ",
@@ -796,12 +761,63 @@ pub fn draw_ui(
                 InputAction::GoTo => " Go To Path ",
             };
 
+            let inner_block = Block::default()
+                .title(Span::styled(
+                    title_text,
+                    Style::default()
+                        .fg(theme.focus_border)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.border));
+
+            let inner_area = inner_block.inner(popup_area);
+
             let input = Paragraph::new(app.input.as_str())
-                .style(Style::default().fg(theme.foreground).bg(theme.background))
-                .block(
+                .style(Style::default().fg(theme.foreground).bg(theme.background));
+
+            f.render_widget(Clear, popup_area);
+            f.render_widget(inner_block, popup_area);
+            f.render_widget(input, inner_area);
+
+            let cursor_x = inner_area.x
+                + UnicodeWidthStr::width(&app.input[..app.input_cursor.min(app.input.len())])
+                    as u16;
+            f.set_cursor_position((cursor_x, inner_area.y));
+
+            if has_quick {
+                let list_y = inner_area.y + 2;
+                let list_area = Rect {
+                    x: inner_area.x,
+                    y: list_y,
+                    width: inner_area.width,
+                    height: inner_area.height.saturating_sub(2),
+                };
+
+                let mut quick_items: Vec<ListItem> = Vec::new();
+                for (i, qa) in config.quick_apps.iter().enumerate() {
+                    let is_sel = i == app.quick_app_selected;
+                    let style = if is_sel {
+                        Style::default()
+                            .bg(theme.focus_border)
+                            .fg(theme.background)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(theme.foreground)
+                    };
+                    quick_items.push(ListItem::new(qa.name.as_str()).style(style));
+                }
+
+                let mut list_state = ListState::default();
+                list_state.select(Some(
+                    app.quick_app_selected
+                        .min(config.quick_apps.len().saturating_sub(1)),
+                ));
+
+                let quick_list = List::new(quick_items).block(
                     Block::default()
                         .title(Span::styled(
-                            title_text,
+                            " Quick Apps ",
                             Style::default()
                                 .fg(theme.focus_border)
                                 .add_modifier(Modifier::BOLD),
@@ -810,12 +826,8 @@ pub fn draw_ui(
                         .border_style(Style::default().fg(theme.border)),
                 );
 
-            f.render_widget(Clear, popup_area);
-            f.render_widget(input, popup_area);
-
-            let cursor_x = popup_area.x + 1
-                + UnicodeWidthStr::width(&app.input[..app.input_cursor.min(app.input.len())]) as u16;
-            f.set_cursor_position((cursor_x, popup_area.y + 1));
+                f.render_stateful_widget(quick_list, list_area, &mut list_state);
+            }
         }
 
         //

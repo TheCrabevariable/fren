@@ -135,13 +135,13 @@ fn parse_color(input: &str) -> Color {
     if input.starts_with('#') {
         let hex = input.trim_start_matches('#');
 
-        if hex.len() == 6 {
-            if let Ok(value) = u32::from_str_radix(hex, 16) {
-                let r = ((value >> 16) & 0xff) as u8;
-                let g = ((value >> 8) & 0xff) as u8;
-                let b = (value & 0xff) as u8;
-                return Color::Rgb(r, g, b);
-            }
+        if hex.len() == 6
+            && let Ok(value) = u32::from_str_radix(hex, 16)
+        {
+            let r = ((value >> 16) & 0xff) as u8;
+            let g = ((value >> 8) & 0xff) as u8;
+            let b = (value & 0xff) as u8;
+            return Color::Rgb(r, g, b);
         }
     }
 

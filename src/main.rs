@@ -9,12 +9,7 @@ use std::time::Duration;
 
 use crossterm::{
     execute,
-    terminal::{
-        EnterAlternateScreen,
-        LeaveAlternateScreen,
-        disable_raw_mode,
-        enable_raw_mode,
-    },
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -24,7 +19,6 @@ use crate::config::Config;
 use crate::theme::Theme;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     enable_raw_mode()?;
 
     let mut stdout = io::stdout();
@@ -39,12 +33,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new(config.remember)?;
     app.load_pinned()?;
 
+    // Draw the first frame so the user sees the UI immediately,
+    // then init the image picker (which can be slow on some terminals).
+    ui::draw_ui(&mut terminal, &mut app, &config, &theme)?;
+    app.init_picker();
+
     // Main loop
     loop {
-        if crossterm::event::poll(Duration::from_millis(16))? {
-            if !event::handle_events(&mut app, &mut terminal, &config, &theme)? {
-                break;
-            }
+        if crossterm::event::poll(Duration::from_millis(16))?
+            && !event::handle_events(&mut app, &mut terminal, &config, &theme)?
+        {
+            break;
         }
 
         ui::draw_ui(&mut terminal, &mut app, &config, &theme)?;

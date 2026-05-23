@@ -1,7 +1,7 @@
 use std::io;
 
 use crossterm::event::{self, Event, KeyCode};
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::app::{App, AppMode, ConflictAction, Focus, InputAction};
 use crate::config::Config;
@@ -14,7 +14,6 @@ pub fn handle_events(
     _theme: &Theme,
 ) -> io::Result<bool> {
     if let Event::Key(key) = event::read()? {
-        //block input
         if app.show_help {
             if let KeyCode::Esc = key.code {
                 app.show_help = false;
@@ -22,9 +21,6 @@ pub fn handle_events(
             return Ok(true);
         }
 
-        //
-        // CONFLICT MODE
-        //
         if let AppMode::Conflict(_) = &app.mode {
             match key.code {
                 KeyCode::Char('s') => app.apply_conflict_action(ConflictAction::Skip)?,
@@ -36,9 +32,6 @@ pub fn handle_events(
             return Ok(true);
         }
 
-        //
-        // INPUT MODE
-        //
         if let AppMode::Input(action) = app.mode.clone() {
             if let InputAction::ConfirmDelete = action {
                 match key.code {
@@ -86,11 +79,10 @@ pub fn handle_events(
 
                         InputAction::GoTo => {
                             let mut path_str = app.input.clone();
-                            if path_str.starts_with('~') {
-                                if let Some(home) = dirs::home_dir() {
-                                    path_str =
-                                        path_str.replacen("~", home.to_str().unwrap_or(""), 1);
-                                }
+                            if path_str.starts_with('~')
+                                && let Some(home) = dirs::home_dir()
+                            {
+                                path_str = path_str.replacen("~", home.to_str().unwrap_or(""), 1);
                             }
                             let path = std::path::PathBuf::from(&path_str);
                             if path.exists() && path.is_dir() {
@@ -113,14 +105,38 @@ pub fn handle_events(
                     app.mode = AppMode::Normal;
                 }
 
-                KeyCode::Left => {
-                    if app.input_cursor > 0 {
-                        let mut prev = app.input_cursor - 1;
-                        while !app.input.is_char_boundary(prev) {
-                            prev -= 1;
-                        }
-                        app.input_cursor = prev;
+                KeyCode::Up if action == InputAction::OpenWith => {
+                    let len = config.quick_apps.len();
+                    if len > 0 {
+                        app.quick_app_selected = if app.quick_app_selected == 0 {
+                            len - 1
+                        } else {
+                            app.quick_app_selected - 1
+                        };
+                        app.input = config.quick_apps[app.quick_app_selected].command.clone();
+                        app.input_cursor = app.input.len();
                     }
+                }
+
+                KeyCode::Down if action == InputAction::OpenWith => {
+                    let len = config.quick_apps.len();
+                    if len > 0 {
+                        app.quick_app_selected = if app.quick_app_selected + 1 >= len {
+                            0
+                        } else {
+                            app.quick_app_selected + 1
+                        };
+                        app.input = config.quick_apps[app.quick_app_selected].command.clone();
+                        app.input_cursor = app.input.len();
+                    }
+                }
+
+                KeyCode::Left if app.input_cursor > 0 => {
+                    let mut prev = app.input_cursor - 1;
+                    while !app.input.is_char_boundary(prev) {
+                        prev -= 1;
+                    }
+                    app.input_cursor = prev;
                 }
 
                 KeyCode::Right => {
@@ -140,21 +156,17 @@ pub fn handle_events(
                     app.input_cursor = app.input.len();
                 }
 
-                KeyCode::Backspace => {
-                    if app.input_cursor > 0 {
-                        let mut prev = app.input_cursor - 1;
-                        while !app.input.is_char_boundary(prev) {
-                            prev -= 1;
-                        }
-                        app.input.remove(prev);
-                        app.input_cursor = prev;
+                KeyCode::Backspace if app.input_cursor > 0 => {
+                    let mut prev = app.input_cursor - 1;
+                    while !app.input.is_char_boundary(prev) {
+                        prev -= 1;
                     }
+                    app.input.remove(prev);
+                    app.input_cursor = prev;
                 }
 
-                KeyCode::Delete => {
-                    if app.input_cursor < app.input.len() {
-                        app.input.remove(app.input_cursor);
-                    }
+                KeyCode::Delete if app.input_cursor < app.input.len() => {
+                    app.input.remove(app.input_cursor);
                 }
 
                 KeyCode::Char(c) => {
@@ -168,41 +180,30 @@ pub fn handle_events(
             return Ok(true);
         }
 
-        //
-        // NORMAL MODE
-        //
         match key.code {
-            // Switch Focus
-            KeyCode::Tab => {
-                if config.keymaps.focus == "tab" {
-                    app.focus = match app.focus {
-                        Focus::Files => Focus::Pinned,
-                        Focus::Pinned => Focus::Storage,
-                        Focus::Storage => Focus::Clipboard,
-                        Focus::Clipboard => Focus::Files,
-                    };
-                }
+            KeyCode::Tab if config.keymaps.focus == "tab" => {
+                app.focus = match app.focus {
+                    Focus::Files => Focus::Pinned,
+                    Focus::Pinned => Focus::Storage,
+                    Focus::Storage => Focus::Clipboard,
+                    Focus::Clipboard => Focus::Files,
+                };
             }
-            //show helper
             KeyCode::Char('/') => {
                 app.show_help = !app.show_help;
             }
 
-            //
-            // Navigation
-            //
             KeyCode::Down => match app.focus {
                 Focus::Files => {
                     if app.selected + 1 < app.entries.len() {
                         app.selected += 1;
-
-                        // reset preview state
+                        let window_end = app.preload_at.wrapping_add(15);
+                        if app.selected >= window_end {
+                            app.preload_images(20);
+                            app.preload_at = app.selected;
+                        }
                         app.image_loading = false;
                         app.image_path = None;
-
-                        // debounce
-                        app.preview_deadline =
-                            Some(std::time::Instant::now() + std::time::Duration::from_millis(60));
                     }
                 }
                 Focus::Pinned => {
@@ -232,14 +233,8 @@ pub fn handle_events(
                 Focus::Files => {
                     if app.selected > 0 {
                         app.selected -= 1;
-
-                        // reset preview state
                         app.image_loading = false;
                         app.image_path = None;
-
-                        // debounce
-                        app.preview_deadline =
-                            Some(std::time::Instant::now() + std::time::Duration::from_millis(60));
                     }
                 }
                 Focus::Pinned => {
@@ -267,7 +262,6 @@ pub fn handle_events(
                     }
                 }
             },
-            //open with enter
             KeyCode::Enter => match app.focus {
                 Focus::Pinned => {
                     if app.pinned_selected < app.pinned.len() {
@@ -292,8 +286,7 @@ pub fn handle_events(
             },
             KeyCode::Right => match app.focus {
                 Focus::Files => {
-                    app.cursor_memory
-                        .insert(app.current_dir.clone(), app.selected);
+                    app.cursor_memory.put(app.current_dir.clone(), app.selected);
 
                     app.enter()?;
                 }
@@ -318,9 +311,6 @@ pub fn handle_events(
                 _ => app.focus = Focus::Files,
             },
 
-            //
-            // Keymap Controlled Actions
-            //
             KeyCode::Char(c) => {
                 let pressed = c.to_string();
 
@@ -328,18 +318,15 @@ pub fn handle_events(
                     app.toggle_selection();
                 }
 
-                // Quit
                 if pressed == config.keymaps.quit {
                     return Ok(false);
                 }
 
-                // Rename
-                if pressed == config.keymaps.rename {
-                    if let Some(entry) = app.entries.get(app.selected) {
-                        if let Some(name) = entry.file_name().to_str() {
-                            app.start_input(InputAction::Rename, Some(name.to_string()));
-                        }
-                    }
+                if pressed == config.keymaps.rename
+                    && let Some(entry) = app.entries.get(app.selected)
+                    && let Some(name) = entry.file_name().to_str()
+                {
+                    app.start_input(InputAction::Rename, Some(name.to_string()));
                 }
                 if pressed == config.keymaps.focus {
                     app.focus = if app.focus == Focus::Files {
@@ -348,17 +335,12 @@ pub fn handle_events(
                         Focus::Files
                     };
                 }
-                // Create File
                 if pressed == config.keymaps.create_file {
                     app.start_input(InputAction::CreateFile, None);
                 }
-
-                // Create Folder
                 if pressed == config.keymaps.create_folder {
                     app.start_input(InputAction::CreateFolder, None);
                 }
-
-                // Trash
                 if pressed == config.keymaps.trash {
                     if app.focus == Focus::Clipboard {
                         app.remove_clipboard_item();
@@ -366,18 +348,12 @@ pub fn handle_events(
                         app.start_input(InputAction::ConfirmDelete, None);
                     }
                 }
-
-                // Open With
                 if pressed == config.keymaps.open {
                     app.start_input(InputAction::OpenWith, None);
                 }
-
-                // Sort
                 if pressed == config.keymaps.sort {
                     app.cycle_sort()?;
                 }
-
-                // Copy
                 if pressed == config.keymaps.copy {
                     if app.focus == Focus::Clipboard {
                         app.recopy_clipboard_item();
@@ -385,11 +361,9 @@ pub fn handle_events(
                         app.copy_selected();
                     }
                 }
-                //Cut
                 if pressed == config.keymaps.cut {
                     app.cut_selected();
                 }
-                //Paste
                 if pressed == config.keymaps.paste {
                     if app.focus == Focus::Clipboard {
                         app.paste_selected()?;
@@ -397,19 +371,15 @@ pub fn handle_events(
                         app.paste()?;
                     }
                 }
-                // Toggle Hidden
                 if pressed == config.keymaps.toggle_hidden {
                     app.toggle_hidden()?;
                 }
-
                 if pressed == config.keymaps.pin && app.focus == Focus::Files {
                     app.pin_selected();
                 }
-
                 if pressed == config.keymaps.unpin && app.focus == Focus::Pinned {
                     app.unpin_selected();
                 }
-
                 if pressed == config.keymaps.go_to {
                     app.start_input(InputAction::GoTo, None);
                 }
