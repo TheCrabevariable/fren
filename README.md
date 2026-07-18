@@ -71,5 +71,8 @@ export FREN_ICON_MODE=nerd
 - **Theme**: `~/.config/fren/theme.toml`
 - **Pinned directories**: `~/.config/fren/pinned.txt`
 - **Session (remember last dir)**: `~/.config/fren/session.txt`
+
+See [Wiki](https://github.com/TheCrabevariable/fren/wiki) for full config and theme documentation.
+
 ## License
 MIT
