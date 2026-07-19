@@ -14,6 +14,8 @@ A fast, lightweight TUI file manager written in Rust. Navigate, organize, and op
 ## Installation
 ### AUR (recommended)
 ```bash
+yay -S fren-bin
+
 yay -S fren-git
 ```
 ### Manual
